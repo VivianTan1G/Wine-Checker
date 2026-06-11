@@ -725,7 +725,7 @@
     <div class="modal-body" id="matchModalBody"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="skipModal()">Skip for Now</button>
-      <button class="btn btn-primary" onclick="saveMappings()">Confirm & Run Analysis</button>
+      <button class="btn btn-primary" onclick="saveMappings()">Save & Run Analysis</button>
     </div>
   </div>
 </div>
@@ -1179,10 +1179,7 @@ function showMatchModal(unmatched,invNames,inv,purchMatched,pmixMatched,purch,pm
         </div>
         <input type="hidden" id="ms${i}" value="">
         <div class="match-footer">
-          <div class="match-scope">
-            <label><input type="radio" name="scope${i}" value="session" checked> Session only</label>
-            <label><input type="radio" name="scope${i}" value="global"> Save to Sheet</label>
-          </div>
+          <span style="font-size:10px;color:var(--text-faint);margin-right:auto">Mappings save automatically to Google Sheet</span>
           <button class="btn btn-sm btn-danger" id="ib${i}" onclick="toggleIgnore(${i})">Ignore</button>
           <button class="btn btn-sm" style="background:var(--pass-bg);color:var(--pass);border:1px solid var(--pass)" onclick="openAddInvFromModal(${i})">+ New Item</button>
         </div>
@@ -1269,9 +1266,10 @@ async function saveMappings(){
     if(btn.dataset.ignoring==='1'){sessionIgnored.add(key);continue;}
     const val=document.getElementById('ms'+i).value;
     if(!val)continue;
-    const scope=document.querySelector('input[name="scope'+i+'"]:checked').value;
+    // always apply to session
     sessionMappings[key]=val;
-    if(scope==='global')toSave.push({normKey:key,invKey:val,sourceType:_pendingUnmatched[i].source});
+    // always save to sheet automatically
+    toSave.push({normKey:key,invKey:val,sourceType:_pendingUnmatched[i].source});
   }
   closeModal();
   if(toSave.length) await saveMappingsToSheet(toSave);
@@ -1313,9 +1311,7 @@ function confirmAddAsInventory(){
     chip.onclick=function(){pickChip(i,normKey,this);};
     document.getElementById('chips'+i).appendChild(chip);
     pickChip(i,normKey,chip);
-    // auto-set to save globally
-    const radio=document.querySelector('input[name="scope'+i+'"][value="global"]');
-    if(radio)radio.checked=true;
+    // mapping will be saved to sheet automatically on confirm
   } else if(_newInvSrcNorm){
     sessionMappings[_newInvSrcNorm]=normKey;
     saveMappingsToSheet([{normKey:_newInvSrcNorm,invKey:normKey,sourceType:'purchase'}]);
