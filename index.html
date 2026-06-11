@@ -1522,7 +1522,7 @@ function addInvFromUnmatched(nk,displayName){
 async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,matchedPurchKeys){
   const THRESH=0.01; const rows=[];
   let costMis=0,pqtyMis=0,sqtyMis=0,unmatched=0;
-  const hasEvent=Object.keys(pmixEvent).length>0;
+  const hasEvent=Object.keys(pmixEvent).length>0 || (appState.data[3]&&appState.data[3].rows&&appState.data[3].rows.length>0);
 
   // Match event pmix to inventory keys
   const pmixEventMatched={};
@@ -1672,43 +1672,65 @@ function exportExcel(){
   function pillStyle(pass,na){if(na)return cellStyle(C.white,'',false,'center');if(pass)return cellStyle(C.passBg,C.passFg,true,'center');return cellStyle(C.failBg,C.failFg,true,'center');}
   function varStyle(val){if(val===''||val===null||val===undefined)return cellStyle(C.white,'888888',false,'center');const n=parseFloat(val);if(isNaN(n)||n===0)return cellStyle(C.white,'2D2010',false,'center',C.numFmt);return n>0?cellStyle('FFF3CC','7A5800',true,'center',C.numFmt):cellStyle('FAD7D7','8B1A1A',true,'center',C.numFmt);}
   const cellStyles={},data=[],merges=[];
-  data.push(['Wine Inventory Check — '+currentEntity,'','','','','','','','','','','','']);
-  for(let c=0;c<13;c++)cellStyles[`0,${c}`]={font:{bold:true,sz:14,color:{rgb:C.headerFg}},fill:{patternType:'solid',fgColor:{rgb:C.headerBg}},alignment:{horizontal:c===0?'left':'center',vertical:'center'},border};
-  merges.push({s:{r:0,c:0},e:{r:0,c:12}});
-  data.push(['','UNIT COST CHECK','','','','PURCHASE QTY CHECK','','','','SOLD QTY CHECK','','','']);
-  for(let c=0;c<13;c++)cellStyles[`1,${c}`]=hdrStyle(C.sectionBg,C.sectionFg);
-  merges.push({s:{r:1,c:1},e:{r:1,c:4}});merges.push({s:{r:1,c:5},e:{r:1,c:8}});merges.push({s:{r:1,c:9},e:{r:1,c:12}});
+  data.push(['Wine Inventory Check — '+currentEntity,'','','','','','','','','','','','','','']);
+  for(let c=0;c<15;c++)cellStyles[`0,${c}`]={font:{bold:true,sz:14,color:{rgb:C.headerFg}},fill:{patternType:'solid',fgColor:{rgb:C.headerBg}},alignment:{horizontal:c===0?'left':'center',vertical:'center'},border};
+  merges.push({s:{r:0,c:0},e:{r:0,c:14}});
+  data.push(['','UNIT COST CHECK','','','','PURCHASE QTY CHECK','','','','SOLD QTY CHECK','','','','','']);
+  for(let c=0;c<15;c++)cellStyles[`1,${c}`]=hdrStyle(C.sectionBg,C.sectionFg);
+  merges.push({s:{r:1,c:1},e:{r:1,c:4}});merges.push({s:{r:1,c:5},e:{r:1,c:8}});merges.push({s:{r:1,c:9},e:{r:1,c:14}});
   data.push(['Item','Inv Unit Cost','Purch Unit Cost','Cost Variance','Cost Check','Inv Purch Qty','Purch Total Qty','Purch Qty Var','Purch Qty Check','Inv Sold Qty','Regular Sold Qty','Event Sold Qty','Combined Qty','Sold Qty Var','Sold Qty Check']);
-  for(let c=0;c<13;c++)cellStyles[`2,${c}`]=hdrStyle(C.headerBg,C.headerFg);
+  for(let c=0;c<15;c++)cellStyles[`2,${c}`]=hdrStyle(C.headerBg,C.headerFg);
   let ri=3;const rowMeta=[];
   for(const r of rows){
     if(r.purchOnly)continue;
     const lines=r.hasPurch?r.purchLines:[null],span=lines.length,isAlt=(rowMeta.length%2===1),rowBg=isAlt?C.altRow:C.white;
     rowMeta.push({ri,span});
-    const anyFail=intentionalUnmatched.has(r.normName)?false:(r.costMismatch||r.pqtyMismatch||r.sqtyMismatch||!r.hasPurch||!r.hasPmix);
+    const anyFail=intentionalUnmatched.has(r.normName)?false:(r.costMismatch||r.pqtyMismatch||r.sqtyMismatch||!r.hasPurch||!(r.hasPmix||r.hasPmixEvent));
     lines.forEach((line,li)=>{
       const isFirst=li===0;
       const costFail=line&&r.invCost!==null?Math.abs(line.cost-r.invCost)>0.005:false;
-      const costNA=!r.hasPurch,pqtyNA=r.invPQty===null||!r.hasPurch,sqtyNA=!r.hasPmix;
+      const costNA=!r.hasPurch,pqtyNA=r.invPQty===null||!r.hasPurch;
       const pqtyVar=r.hasPurch&&r.invPQty!==null?+(r.purchSumQty-r.invPQty).toFixed(2):'';
-      const sqtyVar=r.hasPmix&&r.invSQty!==null?+(r.pmixBtlRound-r.invSQty).toFixed(2):'';
+      const hasSoldData=r.hasPmix||r.hasPmixEvent;
+      const sqtyVar=hasSoldData&&r.invSQty!==null?+(r.pmixCombRound-r.invSQty).toFixed(2):'';
+      const sqtyNA=!hasSoldData;
       const costVariance=line&&r.invCost!==null?+(line.cost-r.invCost).toFixed(2):'';
-      data.push([isFirst?r.displayName:'',isFirst?(r.invCost!==null?r.invCost:''):'',line?line.cost:'',costVariance,!r.hasPurch?'':(costFail?'FAIL':'PASS'),isFirst?(r.invPQty!==null?r.invPQty:''):'',isFirst?(r.hasPurch?r.purchSumQty:''):'',isFirst?pqtyVar:'',isFirst?(pqtyNA?'':(r.pqtyMismatch?'FAIL':'PASS')):'',isFirst?(r.invSQty!==null?r.invSQty:''):'',isFirst?(r.hasPmix?r.pmixBtlRound:''):'',isFirst?sqtyVar:'',isFirst?(sqtyNA?'':(r.sqtyMismatch?'FAIL':'PASS')):'' ]);
+      data.push([
+        isFirst?r.displayName:'',
+        isFirst?(r.invCost!==null?r.invCost:''):'',
+        line?line.cost:'',
+        costVariance,
+        !r.hasPurch?'':(costFail?'FAIL':'PASS'),
+        isFirst?(r.invPQty!==null?r.invPQty:''):'',
+        isFirst?(r.hasPurch?r.purchSumQty:''):'',
+        isFirst?pqtyVar:'',
+        isFirst?(pqtyNA?'':(r.pqtyMismatch?'FAIL':'PASS')):'',
+        isFirst?(r.invSQty!==null?r.invSQty:''):'',
+        isFirst?(r.hasPmix?r.pmixBtlRound:''):'',
+        isFirst?(r.hasPmixEvent?r.pmixEvtBtlRound:''):'',
+        isFirst?(hasSoldData?r.pmixCombRound:''):'',
+        isFirst?sqtyVar:'',
+        isFirst?(sqtyNA?'':(r.sqtyMismatch?'FAIL':'PASS')):''
+      ]);
       const leftBg=anyFail?'FFF0F0':rowBg;
       cellStyles[`${ri},0`]=cellStyle(leftBg,anyFail?'8B1A1A':'2D2010',isFirst&&anyFail,'left');
       cellStyles[`${ri},1`]=cellStyle(rowBg,'2D2010',false,'right',C.numFmt);cellStyles[`${ri},2`]=cellStyle(rowBg,'2D2010',false,'right',C.numFmt);
       cellStyles[`${ri},3`]=varStyle(costVariance);cellStyles[`${ri},4`]=pillStyle(!costFail,costNA);
       cellStyles[`${ri},5`]=cellStyle(C.subtleBg,'2D2010',false,'right',C.numFmt);cellStyles[`${ri},6`]=cellStyle(C.subtleBg,'2D2010',false,'right',C.numFmt);
       cellStyles[`${ri},7`]=varStyle(isFirst?pqtyVar:'');cellStyles[`${ri},8`]=isFirst?pillStyle(!r.pqtyMismatch,pqtyNA):cellStyle(C.subtleBg,'',false,'center');
-      cellStyles[`${ri},9`]=cellStyle(rowBg,'2D2010',false,'right',C.numFmt);cellStyles[`${ri},10`]=cellStyle(rowBg,'2D2010',false,'right',C.numFmt);
-      cellStyles[`${ri},11`]=varStyle(isFirst?sqtyVar:'');cellStyles[`${ri},12`]=isFirst?pillStyle(!r.sqtyMismatch,sqtyNA):cellStyle(rowBg,'',false,'center');
-      if(span>1&&isFirst)[0,1,5,6,7,8,9,10,11,12].forEach(c=>merges.push({s:{r:ri,c},e:{r:ri+span-1,c}}));
+      cellStyles[`${ri},9`]=cellStyle(rowBg,'2D2010',false,'right',C.numFmt);
+      cellStyles[`${ri},10`]=cellStyle(rowBg,'2D2010',false,'right',C.numFmt);
+      cellStyles[`${ri},11`]=cellStyle(rowBg,'2D2010',false,'right',C.numFmt);
+      cellStyles[`${ri},12`]=cellStyle(rowBg,'2D2010',true,'right',C.numFmt);
+      cellStyles[`${ri},13`]=varStyle(isFirst?sqtyVar:'');
+      cellStyles[`${ri},14`]=isFirst?pillStyle(!r.sqtyMismatch,sqtyNA):cellStyle(rowBg,'',false,'center');
+      if(span>1&&isFirst)[0,1,5,6,7,8,9,10,11,12,13,14].forEach(c=>merges.push({s:{r:ri,c},e:{r:ri+span-1,c}}));
       ri++;
     });
   }
   const ws=XLSX.utils.aoa_to_sheet(data);
   for(const[key,style] of Object.entries(cellStyles)){const[r,c]=key.split(',').map(Number);const addr=XLSX.utils.encode_cell({r,c});if(!ws[addr])ws[addr]={v:'',t:'s'};ws[addr].s=style;}
-  ws['!cols']=[{wch:32},{wch:16},{wch:16},{wch:14},{wch:12},{wch:18},{wch:16},{wch:14},{wch:14},{wch:16},{wch:16},{wch:14},{wch:14}];
+  ws['!cols']=[{wch:32},{wch:14},{wch:14},{wch:12},{wch:10},{wch:16},{wch:14},{wch:12},{wch:12},{wch:14},{wch:16},{wch:14},{wch:14},{wch:12},{wch:12}];
   ws['!rows']=[{hpt:24},{hpt:18},{hpt:20}];ws['!merges']=merges;ws['!freeze']={xSplit:1,ySplit:3};
   XLSX.utils.book_append_sheet(wb,ws,'Wine Inventory Check');
   const mapData=[['Source Name','Inventory Name','Source Type']];
