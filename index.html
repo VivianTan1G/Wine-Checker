@@ -1427,7 +1427,6 @@ function buildUnmatchedSection(purch,pmix,matchedPurchKeys,inv){
         <input type="hidden" id="um_ms_${nk.replace(/[^a-z0-9]/g,'_')}" value="">
       </td>
       <td class="mm-actions">
-        <button class="btn btn-sm btn-primary" onclick="saveUnmatchedMapping('${nk.replace(/'/g,"\\'")}','${source}')">Save to Sheet</button>
         <button class="btn btn-sm" style="background:var(--pass-bg);color:var(--pass);border:1px solid var(--pass)" onclick="addInvFromUnmatched('${nk.replace(/'/g,"\\'")}','${rn.replace(/'/g,"\\'")}')">+ New Item</button>
         <button class="btn btn-sm btn-secondary" onclick="ignoreUnmatched('${nk.replace(/'/g,"\\'")}')">Ignore</button>
       </td>
@@ -1461,6 +1460,8 @@ function pickUnmatchedResult(nk,invKey,inputEl){
   document.getElementById('um_sel_'+sid).style.display='flex';
   document.getElementById('um_sr_'+sid).classList.remove('open');
   if(inputEl)inputEl.value='';
+  // auto-save immediately
+  autoSaveUnmatched(nk, invKey);
 }
 
 function unmatchedPick(nk,invKey,btn){
@@ -1470,6 +1471,8 @@ function unmatchedPick(nk,invKey,btn){
   document.getElementById('um_seltext_'+sid).textContent=display;
   document.getElementById('um_sel_'+sid).style.display='flex';
   btn.closest('.sug-chips').querySelectorAll('.sug-chip').forEach(b=>b.classList.toggle('selected',b===btn));
+  // auto-save immediately
+  autoSaveUnmatched(nk, invKey);
 }
 
 function clearUnmatchedSel(nk){
@@ -1478,15 +1481,29 @@ function clearUnmatchedSel(nk){
   document.getElementById('um_sel_'+sid).style.display='none';
 }
 
+async function autoSaveUnmatched(nk, invKey){
+  // Determine source type from the row's source pill
+  const sid=safeId(nk);
+  const row=document.getElementById('umrow_'+sid);
+  const sourceType=row?.querySelector('.pill-warn')?'purchase':'pmix';
+  sessionMappings[nk]=invKey;
+  await saveMappingsToSheet([{normKey:nk,invKey,sourceType}]);
+  if(row){
+    row.style.opacity='0.5';
+    // show saved indicator
+    const actions=row.querySelector('.mm-actions');
+    if(actions){
+      actions.innerHTML='<span style="font-size:10px;color:var(--pass);letter-spacing:.06em">✓ Saved — re-run to update results</span>'+
+        '<button class="btn btn-sm btn-secondary" onclick="ignoreUnmatched(\''+nk.replace(/'/g,"\\'")+'\')" style="margin-left:8px">Ignore</button>';
+    }
+  }
+}
+
 async function saveUnmatchedMapping(nk,sourceType){
   const sid=safeId(nk);
   const invKey=document.getElementById('um_ms_'+sid).value;
   if(!invKey){toast('Select an inventory item first');return;}
-  sessionMappings[nk]=invKey;
-  await saveMappingsToSheet([{normKey:nk,invKey,sourceType}]);
-  const row=document.getElementById('umrow_'+sid);
-  if(row)row.style.opacity='0.4';
-  toast('Mapping saved — re-run analysis to update results');
+  await autoSaveUnmatched(nk,invKey);
 }
 
 function ignoreUnmatched(nk){
