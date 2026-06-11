@@ -1607,8 +1607,8 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,ma
   const unmatchedSection=buildUnmatchedSection(purch,pmix,matchedPurchKeys,inv);
 
   const eventCols=hasEvent
-    ?'<th>Regular BTL</th><th>Event BTL</th><th>Combined BTL</th>'
-    :'<th>PMix BTL Equiv</th><th>Combined BTL</th>';
+    ?'<th>Regular Sold Qty</th><th>Event Sold Qty</th><th>Combined Qty</th>'
+    :'<th>Regular Sold Qty</th><th>Combined Qty</th>';
 
   document.getElementById('results-body').innerHTML=`
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Entity: <strong style="color:var(--accent2)">${currentEntity}</strong></div>
@@ -1640,7 +1640,7 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,ma
           <tr>
             <th>Inv Cost</th><th>Purch Cost</th><th>Variance</th><th>Check</th>
             <th>Inv Qty</th><th>Purch Qty</th><th>Variance</th><th>Check</th>
-            <th>Inv Sold Qty</th>${eventCols}<th>Variance</th><th>Check</th>
+            <th>Inv Sold Qty</th>${eventCols}<th>Sold Qty Var</th><th>Sold Qty Check</th>
           </tr>
         </thead>
         <tbody id="resultsBody">${tHTML}</tbody>
@@ -1678,7 +1678,7 @@ function exportExcel(){
   data.push(['','UNIT COST CHECK','','','','PURCHASE QTY CHECK','','','','SOLD QTY CHECK','','','']);
   for(let c=0;c<13;c++)cellStyles[`1,${c}`]=hdrStyle(C.sectionBg,C.sectionFg);
   merges.push({s:{r:1,c:1},e:{r:1,c:4}});merges.push({s:{r:1,c:5},e:{r:1,c:8}});merges.push({s:{r:1,c:9},e:{r:1,c:12}});
-  data.push(['Item','Inv Unit Cost','Purch Unit Cost','Cost Variance','Cost Check','Inv Purch Qty','Purch Total Qty','Purch Qty Var','Purch Qty Check','Inv Sold Qty','PMix Btl Equiv','Sold Qty Var','Sold Qty Check']);
+  data.push(['Item','Inv Unit Cost','Purch Unit Cost','Cost Variance','Cost Check','Inv Purch Qty','Purch Total Qty','Purch Qty Var','Purch Qty Check','Inv Sold Qty','Regular Sold Qty','Event Sold Qty','Combined Qty','Sold Qty Var','Sold Qty Check']);
   for(let c=0;c<13;c++)cellStyles[`2,${c}`]=hdrStyle(C.headerBg,C.headerFg);
   let ri=3;const rowMeta=[];
   for(const r of rows){
