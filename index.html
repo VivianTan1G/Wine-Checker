@@ -657,7 +657,10 @@
   <!-- STEP 3: Product Mix -->
   <div class="panel" id="panel2">
     <p class="panel-title">Product Mix</p>
-    <p class="panel-sub">Upload the product mix / sales breakdown</p>
+    <p class="panel-sub">Upload the regular product mix and (optionally) the event product mix</p>
+
+    <!-- Regular PMix -->
+    <div class="section-label" style="margin-bottom:8px">Regular Product Mix</div>
     <label class="upload-zone" id="zone2" ondragover="drag(event,'zone2')" ondragleave="undrag('zone2')" ondrop="drop(event,2)">
       <input type="file" id="file2" accept=".xlsx,.xls,.csv" onchange="loadFile(2)">
       <div class="icon">🍷</div><p>Click to upload or drag & drop</p>
@@ -668,13 +671,35 @@
         <div class="field"><label>Sheet</label><select id="sheet2" onchange="refreshPreview(2)"></select></div>
         <div class="field"><label>Skip Rows (header row index)</label><input type="number" id="skip2" value="0" min="0" onchange="refreshPreview(2)"><span class="hint">0 = first row is header</span></div>
       </div>
-      <div class="section-label">Column Mapping</div>
+      <div class="section-label">Column Mapping — Regular PMix</div>
       <div class="config-grid">
         <div class="field"><label>Item Name Column</label><select id="col2_name"></select></div>
         <div class="field"><label>Gross Revenue Column</label><select id="col2_rev"></select></div>
         <div class="field"><label>Qty (Item Consumed) Column</label><select id="col2_qty"></select></div>
       </div>
       <div class="preview-wrap" id="prev2"></div>
+    </div>
+
+    <!-- Event PMix -->
+    <div class="section-label" style="margin-bottom:8px;margin-top:20px">Event Product Mix <span style="font-size:10px;color:var(--text-faint);text-transform:none;letter-spacing:0">(optional)</span></div>
+    <label class="upload-zone" id="zone3" ondragover="drag(event,'zone3')" ondragleave="undrag('zone3')" ondrop="drop(event,3)">
+      <input type="file" id="file3" accept=".xlsx,.xls,.csv" onchange="loadFile(3)">
+      <div class="icon">🎪</div><p>Click to upload or drag & drop</p>
+      <p class="file-name" id="fname3">No file selected</p>
+    </label>
+    <div id="cfg3" style="display:none">
+      <div class="config-grid">
+        <div class="field"><label>Sheet</label><select id="sheet3" onchange="refreshPreview(3)"></select></div>
+        <div class="field"><label>Skip Rows (header row index)</label><input type="number" id="skip3" value="0" min="0" onchange="refreshPreview(3)"><span class="hint">0 = first row is header</span></div>
+      </div>
+      <div class="section-label">Column Mapping — Event PMix</div>
+      <div class="config-grid">
+        <div class="field"><label>Item Name Column</label><select id="col3_name"></select></div>
+        <div class="field"><label>Gross Revenue Column</label><select id="col3_rev"></select></div>
+        <div class="field"><label>Qty (Item Consumed) Column</label><select id="col3_qty"></select></div>
+      </div>
+      <div class="preview-wrap" id="prev3"></div>
+    </div>
 
       <!-- Serving size defaults -->
       <div class="memory-panel">
@@ -703,7 +728,6 @@
       </div>
 
       <div class="btn-row"><button class="btn btn-primary" onclick="runAnalysis()">Run Analysis →</button></div>
-    </div>
   </div>
 
   <!-- STEP 4: Results -->
@@ -783,8 +807,10 @@
 
 <script>
 // ─── Config ───────────────────────────────────────────────────────────────────
-const SHEET_CSV_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTqzffmBo4hZPajLyl7ephLcBn26uqgcEaE-rQ2u1vNdrZdMG8-pvTK9nh6ABxeJN6sFC8tTxOqminN/pub?output=csv';
-const WRITE_URL      = 'https://script.google.com/macros/s/AKfycbyMXUK3TEboHO6EV9CW8ILXWR8_BhQA205_8FqaaYpFjwmy9qJ0QK8X5Ur75Mu6lJf-/exec';
+const API_URL        = '/api/proxy';   // Vercel serverless proxy — handles both read & write
+// Keep these as fallback reference only (used by Apps Script, not called directly from browser)
+const _SHEET_ID      = '2PACX-1vTqzffmBo4hZPajLyl7ephLcBn26uqgcEaE-rQ2u1vNdrZdMG8-pvTK9nh6ABxeJN6sFC8tTxOqminN';
+const _SCRIPT_URL    = 'https://script.google.com/macros/s/AKfycbyMXUK3TEboHO6EV9CW8ILXWR8_BhQA205_8FqaaYpFjwmy9qJ0QK8X5Ur75Mu6lJf-/exec';
 
 const ENTITIES = [
   '1-Garden Pte Ltd','1-Garage Pte Ltd','1-Soleil Pte Ltd','1-Production Pte Ltd',
@@ -797,7 +823,7 @@ function mappingsTab(e)  { return entitySlug(e)+'_mappings'; }
 function servingTab(e)   { return entitySlug(e)+'_serving_sizes'; }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const appState = { workbooks:[null,null,null], data:[null,null,null], confirmed:[false,false,false] };
+const appState = { workbooks:[null,null,null,null], data:[null,null,null,null], confirmed:[false,false,false,false] };
 let currentEntity='', sheetMaps={}, servingOverrides={}, sessionMappings={};
 let sessionIgnored=new Set(), intentionalUnmatched=new Set();
 let pendingConflicts=[], pendingSaveQueue=[], conflictResolutions={};
@@ -852,45 +878,51 @@ function splitCsv(line) {
 async function loadEntityData(entity) {
   setSyncStatus('','Loading '+entity+'…');
   sheetMaps={}; servingOverrides={};
+  // Load mappings via proxy
   try {
-    const r=await fetch(SHEET_CSV_BASE+'&sheet='+encodeURIComponent(mappingsTab(entity)));
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const lines=(await r.text()).trim().split('\n');
-    for(let i=1;i<lines.length;i++){const c=splitCsv(lines[i]);if(c[0]&&c[1])sheetMaps[normalise(c[0])]=c[1].trim();}
-  } catch(e){setSyncStatus('err','Mappings unavailable · '+entity);console.warn(e);}
+    const r=await fetch(API_URL+'?action=read&tab='+encodeURIComponent(mappingsTab(entity)));
+    const data=await r.json();
+    if(data.status==='ok'){
+      (data.mappings||[]).forEach(m=>{
+        if(m.invoice_name&&m.inventory_name) sheetMaps[normalise(m.invoice_name)]=m.inventory_name.trim();
+      });
+    } else throw new Error(data.msg||'Read failed');
+  } catch(e){setSyncStatus('err','Mappings unavailable · '+entity);console.warn('Mappings:',e);}
+  // Load serving sizes via proxy
   try {
-    const r=await fetch(SHEET_CSV_BASE+'&sheet='+encodeURIComponent(servingTab(entity)));
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const lines=(await r.text()).trim().split('\n');
-    for(let i=1;i<lines.length;i++){const c=splitCsv(lines[i]);if(c[0])servingOverrides[normalise(c[0])]={displayName:c[0].trim(),bottleMl:parseFloat(c[1])||750,glassMl:parseFloat(c[2])||150};}
-  } catch(e){console.warn('Serving load failed',e);}
+    const r=await fetch(API_URL+'?action=read&tab='+encodeURIComponent(servingTab(entity)));
+    const data=await r.json();
+    if(data.status==='ok'){
+      (data.mappings||[]).forEach(m=>{
+        if(m.invoice_name) servingOverrides[normalise(m.invoice_name)]={
+          displayName: m.invoice_name.trim(),
+          bottleMl: parseFloat(m.inventory_name)||750,
+          glassMl:  parseFloat(m.conversion_factor)||150,
+        };
+      });
+    }
+  } catch(e){console.warn('Serving sizes:',e);}
   const mc=Object.keys(sheetMaps).length, sc=Object.keys(servingOverrides).length;
   setSyncStatus('ok','Connected · '+mc+' mappings · '+sc+' serving overrides · '+entity);
   renderServingOverridesList();
 }
 
 // ─── Write to sheet ───────────────────────────────────────────────────────────
-async function writeToSheet(tab,rows) {
-  const payload={tab,rows}, jsonStr=JSON.stringify(payload);
-  showDebug('Writing to tab: '+tab+' ('+rows.length+' row(s))');
+async function writeToSheet(tab, mappings) {
+  // Send {tab, mappings:[{invoice_name, inventory_name, conversion_factor}]}
+  // matching beer & spirits Apps Script format exactly
+  const payload={tab, mappings};
+  showDebug('Writing to tab: '+tab+' ('+mappings.length+' item(s))');
   try {
-    const body='data='+encodeURIComponent(jsonStr);
-    const r=await fetch(WRITE_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
-    const text=await r.text();
-    showDebug('POST form response: '+text.substring(0,100));
-    if(text.includes('"ok"')||text.toLowerCase().includes('ok')){showDebug('✓ Saved via POST');return true;}
-    throw new Error(text);
-  } catch(e1){showDebug('POST failed: '+e1.message,'warn');}
-  try {
-    const r=await fetch(WRITE_URL+'?data='+encodeURIComponent(jsonStr),{method:'GET'});
-    const text=await r.text();
-    if(text.includes('"ok"')||text.toLowerCase().includes('ok')){showDebug('✓ Saved via GET');return true;}
-    throw new Error(text);
-  } catch(e2){showDebug('GET failed: '+e2.message,'warn');}
-  try {
-    await fetch(WRITE_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:jsonStr});
-    showDebug('no-cors sent (unverified)','warn'); toast('Saved (unverified — check sheet)'); return true;
-  } catch(e3){showDebug('All methods failed: '+e3.message,'error');toast('Write failed — see debug panel');return false;}
+    const r=await fetch(API_URL+'?data='+encodeURIComponent(JSON.stringify(payload)));
+    const data=await r.json();
+    if(data.status==='ok'){showDebug('\u2713 Written '+data.written+' item(s)');return true;}
+    throw new Error(data.msg||'Write failed');
+  } catch(e){
+    showDebug('Write failed: '+e.message,'error');
+    toast('Write failed: '+e.message);
+    return false;
+  }
 }
 
 // ─── Save mappings with conflict detection ────────────────────────────────────
@@ -901,8 +933,8 @@ async function saveMappingsToSheet(items) {
                        .map(m=>({normKey:m.normKey,yours:m.invKey,theirs:sheetMaps[m.normKey]}));
   if(conflicts.length){showConflictModal(conflicts,items);return false;}
   items.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
-  const rows=items.map(m=>[m.normKey,m.invKey,m.sourceType||'']);
-  const ok=await writeToSheet(mappingsTab(currentEntity),rows);
+  const mappings=items.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:m.sourceType||''}));
+  const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
   if(ok) toast(items.length+' mapping(s) saved to Google Sheet');
   return ok;
 }
@@ -924,8 +956,8 @@ async function resolveConflicts(){
   for(let i=0;i<pendingConflicts.length;i++){if(!conflictResolutions[i]){toast('Choose a version for each conflict');return;}}
   const final=pendingSaveQueue.map(m=>{const ci=pendingConflicts.findIndex(c=>c.normKey===m.normKey);return(ci>=0&&conflictResolutions[ci]==='t')?{...m,invKey:pendingConflicts[ci].theirs}:m;});
   closeConflict();final.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
-  const rows=final.map(m=>[m.normKey,m.invKey,m.sourceType||'']);
-  const ok=await writeToSheet(mappingsTab(currentEntity),rows);
+  const mappings=final.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:m.sourceType||''}));
+  const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
   if(ok) toast(final.length+' mapping(s) saved');
 }
 function closeConflict(){document.getElementById('conflictModal').classList.remove('open');}
@@ -933,8 +965,13 @@ function closeConflict(){document.getElementById('conflictModal').classList.remo
 // ─── Save serving sizes ───────────────────────────────────────────────────────
 async function saveServingToSheet() {
   if(!currentEntity){toast('Select an entity first');return;}
-  const rows=Object.entries(servingOverrides).map(([k,v])=>[v.displayName||k,v.bottleMl,v.glassMl]);
-  const ok=await writeToSheet(servingTab(currentEntity),rows);
+  // Serving sizes: invoice_name=item_name, inventory_name=bottle_ml, conversion_factor=glass_ml
+  const mappings=Object.entries(servingOverrides).map(([k,v])=>({
+    invoice_name: v.displayName||k,
+    inventory_name: String(v.bottleMl),
+    conversion_factor: String(v.glassMl)
+  }));
+  const ok=await writeToSheet(servingTab(currentEntity),mappings);
   if(ok) toast('Serving sizes saved to Google Sheet');
 }
 
@@ -962,7 +999,7 @@ function init(){
 async function onEntityChange(){
   currentEntity=document.getElementById('entitySel').value;
   sheetMaps={};servingOverrides={};sessionMappings={};sessionIgnored=new Set();intentionalUnmatched=new Set();sessionInventory={};
-  appState.workbooks=[null,null,null];appState.data=[null,null,null];appState.confirmed=[false,false,false];
+  appState.workbooks=[null,null,null,null];appState.data=[null,null,null,null];appState.confirmed=[false,false,false,false];
   ['tab0','tab1','tab2','tab3'].forEach(id=>document.getElementById(id).classList.remove('done'));
   goStep(0);
   if(currentEntity) await loadEntityData(currentEntity);
@@ -1011,7 +1048,7 @@ function getRows(step){
 function refreshPreview(step){
   const res=getRows(step);if(!res)return;
   const{headers,rows}=res;
-  const selIds={0:['col0_name','col0_cost','col0_pqty','col0_sqty'],1:['col1_name','col1_cost','col1_qty'],2:['col2_name','col2_rev','col2_qty']}[step];
+  const selIds={0:['col0_name','col0_cost','col0_pqty','col0_sqty'],1:['col1_name','col1_cost','col1_qty'],2:['col2_name','col2_rev','col2_qty'],3:['col3_name','col3_rev','col3_qty']}[step];
   const opts=headers.map((h,i)=>`<option value="${i}">${h||'(col '+(i+1)+')'}</option>`).join('');
   selIds.forEach(id=>{document.getElementById(id).innerHTML=opts;});
   document.getElementById('prev'+step).innerHTML=
@@ -1046,9 +1083,11 @@ function parsePurchase(){
   return result;
 }
 
-function parseProductMix(){
-  const{rows}=appState.data[2];
-  const nc=+document.getElementById('col2_name').value,rc=+document.getElementById('col2_rev').value,qc=+document.getElementById('col2_qty').value;
+function _parsePmixData(stepIdx, nameId, revId, qtyId){
+  const data=appState.data[stepIdx];
+  if(!data||!data.rows)return {};
+  const{rows}=data;
+  const nc=+document.getElementById(nameId).value,rc=+document.getElementById(revId).value,qc=+document.getElementById(qtyId).value;
   const defBottle=parseFloat(document.getElementById('def_bottle_ml').value)||750;
   const defGlass=parseFloat(document.getElementById('def_glass_ml').value)||150;
   const result={};
@@ -1064,6 +1103,8 @@ function parseProductMix(){
   }
   return result;
 }
+function parseProductMix(){ return _parsePmixData(2,'col2_name','col2_rev','col2_qty'); }
+function parseProductMixEvent(){ return appState.data[3]?_parsePmixData(3,'col3_name','col3_rev','col3_qty'):{}; }
 
 // ─── Run analysis (chunked) ───────────────────────────────────────────────────
 async function runAnalysis(){
@@ -1086,6 +1127,7 @@ async function runAnalysis(){
   showProgress(45,'Parsing product mix…');
   await yieldFrame();
   const pmix=parseProductMix();
+  const pmixEvent=parseProductMixEvent();
 
   const invNames=Object.keys(inv);
   const invCands=invNames.map(n=>({name:n}));
@@ -1127,9 +1169,9 @@ async function runAnalysis(){
   const allUnmatched=[...purchUnmatched,...pmixUnmatched];
   if(allUnmatched.length>0){
     hideProgress();
-    await showMatchModal(allUnmatched,invNames,inv,purchMatched,pmixMatched,purch,pmix,matchedPurchKeys);
+    await showMatchModal(allUnmatched,invNames,inv,purchMatched,pmixMatched,purch,pmix,pmixEvent,matchedPurchKeys);
   } else {
-    await buildResults(inv,purch,purchMatched,pmixMatched,pmix,matchedPurchKeys);
+    await buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,matchedPurchKeys);
     hideProgress();
   }
 }
@@ -1139,7 +1181,7 @@ let _pendingUnmatched=[],_pendingCb=null,_modalInv={},_modalInvNames=[];
 // track current selection per modal item
 let _modalSelections={};
 
-function showMatchModal(unmatched,invNames,inv,purchMatched,pmixMatched,purch,pmix,matchedPurchKeys){
+function showMatchModal(unmatched,invNames,inv,purchMatched,pmixMatched,purch,pmix,pmixEvent,matchedPurchKeys){
   return new Promise(resolve=>{
     _pendingUnmatched=unmatched;_modalInv=inv;_modalInvNames=invNames;_modalSelections={};
     _pendingCb=()=>{
@@ -1153,7 +1195,7 @@ function showMatchModal(unmatched,invNames,inv,purchMatched,pmixMatched,purch,pm
         const mapped=getMapping(u.rawName);
         if(mapped&&inv[mapped])pmixMatched[mapped]=(pmixMatched[mapped]||0)+u.data.bottleEquiv;
       }
-      buildResults(inv,purch,purchMatched,pmixMatched,pmix,matchedPurchKeys);
+      buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,matchedPurchKeys);
       resolve();
     };
 
@@ -1460,57 +1502,86 @@ function addInvFromUnmatched(nk,displayName){
   document.getElementById('newInvModal').classList.add('open');
 }
 
-async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,matchedPurchKeys){
-  const THRESH=0.01;const rows=[];
+async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,matchedPurchKeys){
+  const THRESH=0.01; const rows=[];
   let costMis=0,pqtyMis=0,sqtyMis=0,unmatched=0;
+  const hasEvent=Object.keys(pmixEvent).length>0;
 
-  showProgress(88,'Building result rows…');
+  // Match event pmix to inventory keys
+  const pmixEventMatched={};
+  const invCands=Object.keys(inv).map(n=>({name:n}));
+  for(const[rn,data] of Object.entries(pmixEvent)){
+    const nk=normalise(rn);
+    const mapped=getMapping(rn);
+    const target=mapped&&inv[mapped]?mapped:fuzzyMatch(nk,invCands);
+    if(target&&inv[target]) pmixEventMatched[target]=(pmixEventMatched[target]||0)+data.bottleEquiv;
+  }
+
+  showProgress(88,'Building result rows...');
   await yieldFrame();
 
   const invEntries=Object.entries(inv);
   const CHUNK=100;
   for(let i=0;i<invEntries.length;i+=CHUNK){
     invEntries.slice(i,i+CHUNK).forEach(([nk,d])=>{
-      const pr=purchMatched[nk]||[],hasPurch=pr.length>0,hasPmix=nk in pmixMatched;
+      const pr=purchMatched[nk]||[],hasPurch=pr.length>0;
+      const hasPmix=nk in pmixMatched;
+      const hasPmixEvent=nk in pmixEventMatched;
       const pmixBtl=pmixMatched[nk]||0;
+      const pmixEvtBtl=pmixEventMatched[nk]||0;
+      const pmixCombined=pmixBtl+pmixEvtBtl;
       const cg={};for(const p of pr){const k=p.unitCost.toFixed(4);if(!cg[k])cg[k]={cost:p.unitCost,qty:0};cg[k].qty+=p.qty;}
       const purchLines=Object.values(cg),purchSumQty=purchLines.reduce((a,l)=>a+l.qty,0);
       const pmixBtlRound=Math.round(pmixBtl*100)/100;
+      const pmixEvtBtlRound=Math.round(pmixEvtBtl*100)/100;
+      const pmixCombRound=Math.round(pmixCombined*100)/100;
       const costMismatch=hasPurch&&purchLines.some(l=>Math.abs(l.cost-d.unitCost)>0.005);
       const pqtyMismatch=hasPurch&&d.purchQty!==null&&Math.abs(purchSumQty-d.purchQty)>THRESH;
-      const sqtyMismatch=hasPmix&&d.soldQty!==null&&Math.abs(pmixBtlRound-d.soldQty)>THRESH;
-      if(costMismatch)costMis++;if(pqtyMismatch)pqtyMis++;if(sqtyMismatch)sqtyMis++;if(!hasPurch||!hasPmix)unmatched++;
-      rows.push({displayName:d.displayName,normName:nk,invCost:d.unitCost,invPQty:d.purchQty,invSQty:d.soldQty,hasPurch,hasPmix,purchLines,purchSumQty,pmixBtlRound,costMismatch,pqtyMismatch,sqtyMismatch,purchOnly:false});
+      // Sold qty check: combined regular+event vs inventory
+      const sqtyMismatch=(hasPmix||hasPmixEvent)&&d.soldQty!==null&&Math.abs(pmixCombRound-d.soldQty)>THRESH;
+      if(costMismatch)costMis++;if(pqtyMismatch)pqtyMis++;if(sqtyMismatch)sqtyMis++;
+      if(!hasPurch||(!(hasPmix||hasPmixEvent)))unmatched++;
+      rows.push({displayName:d.displayName,normName:nk,invCost:d.unitCost,invPQty:d.purchQty,invSQty:d.soldQty,
+        hasPurch,hasPmix,hasPmixEvent,purchLines,purchSumQty,
+        pmixBtlRound,pmixEvtBtlRound,pmixCombRound,
+        costMismatch,pqtyMismatch,sqtyMismatch,purchOnly:false});
     });
     if(i%500===0) await yieldFrame();
   }
 
-  showProgress(94,'Rendering table…');
+  showProgress(94,'Rendering table...');
   await yieldFrame();
 
-  // build table HTML in chunks to avoid long string concat freezing
   let tHTML='';
   for(let i=0;i<rows.length;i++){
     const r=rows[i];
-    const fail=(!intentionalUnmatched.has(r.normName)&&(r.purchOnly||r.costMismatch||r.pqtyMismatch||r.sqtyMismatch||!r.hasPurch||!r.hasPmix))?'1':'0';
+    const hasSoldData=r.hasPmix||r.hasPmixEvent;
+    const fail=(!intentionalUnmatched.has(r.normName)&&(r.purchOnly||r.costMismatch||r.pqtyMismatch||r.sqtyMismatch||!r.hasPurch||!hasSoldData))?'1':'0';
     const fc=fail==='1'?'fail-row':'';
-    const lines=r.hasPurch?r.purchLines:[null];const span=lines.length;
+    const lines=r.hasPurch?r.purchLines:[null]; const span=lines.length;
     lines.forEach((line,li)=>{
       const isFirst=li===0;
       const cf=line&&r.invCost!==null?Math.abs(line.cost-r.invCost)>0.005:false;
       const cv=line&&r.invCost!==null?(line.cost-r.invCost).toFixed(2):'';
       tHTML+='<tr class="'+fc+'" data-fail="'+fail+'">';
-      if(isFirst){tHTML+='<td rowspan="'+span+'">'+r.displayName+'</td><td rowspan="'+span+'">'+(r.invCost!==null?r.invCost.toFixed(2):'')+' </td>';}
-      tHTML+='<td>'+(line?line.cost.toFixed(2):'')+' </td><td>'+cv+'</td><td>'+(r.invCost===null?'':pill(!cf,!r.hasPurch))+'</td>';
       if(isFirst){
-        tHTML+='<td rowspan="'+span+'">'+(r.invPQty!==null?r.invPQty.toFixed(2):'')+' </td>';
-        tHTML+='<td rowspan="'+span+'">'+(r.hasPurch?r.purchSumQty.toFixed(2):'')+' </td>';
-        tHTML+='<td rowspan="'+span+'">'+(r.hasPurch&&r.invPQty!==null?(r.purchSumQty-r.invPQty).toFixed(2):'')+' </td>';
+        tHTML+='<td rowspan="'+span+'">'+r.displayName+'</td>';
+        tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(r.invCost!==null?r.invCost.toFixed(2):'')+' </td>';
+      }
+      tHTML+='<td style="text-align:right">'+(line?line.cost.toFixed(2):'')+' </td>';
+      tHTML+='<td style="text-align:right">'+cv+'</td>';
+      tHTML+='<td>'+(r.invCost===null?'':pill(!cf,!r.hasPurch))+'</td>';
+      if(isFirst){
+        tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(r.invPQty!==null?r.invPQty.toFixed(2):'')+' </td>';
+        tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(r.hasPurch?r.purchSumQty.toFixed(2):'')+' </td>';
+        tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(r.hasPurch&&r.invPQty!==null?(r.purchSumQty-r.invPQty).toFixed(2):'')+' </td>';
         tHTML+='<td rowspan="'+span+'">'+pill(!r.pqtyMismatch,r.invPQty===null||!r.hasPurch)+'</td>';
-        tHTML+='<td rowspan="'+span+'">'+(r.invSQty!==null?r.invSQty.toFixed(2):'')+' </td>';
-        tHTML+='<td rowspan="'+span+'">'+(r.hasPmix?r.pmixBtlRound.toFixed(2):'')+' </td>';
-        tHTML+='<td rowspan="'+span+'">'+(r.hasPmix&&r.invSQty!==null?(r.pmixBtlRound-r.invSQty).toFixed(2):'')+' </td>';
-        tHTML+='<td rowspan="'+span+'">'+pill(!r.sqtyMismatch,!r.hasPmix)+'</td>';
+        tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(r.invSQty!==null?r.invSQty.toFixed(2):'')+' </td>';
+        tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(r.hasPmix?r.pmixBtlRound.toFixed(2):'—')+' </td>';
+        if(hasEvent) tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(r.hasPmixEvent?r.pmixEvtBtlRound.toFixed(2):'—')+' </td>';
+        tHTML+='<td rowspan="'+span+'" style="text-align:right;font-weight:600">'+(hasSoldData?r.pmixCombRound.toFixed(2):'')+' </td>';
+        tHTML+='<td rowspan="'+span+'" style="text-align:right">'+(hasSoldData&&r.invSQty!==null?(r.pmixCombRound-r.invSQty).toFixed(2):'')+' </td>';
+        tHTML+='<td rowspan="'+span+'">'+pill(!r.sqtyMismatch,!hasSoldData)+'</td>';
       }
       tHTML+='</tr>';
     });
@@ -1518,8 +1589,12 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,matchedPurch
 
   const unmatchedSection=buildUnmatchedSection(purch,pmix,matchedPurchKeys,inv);
 
+  const eventCols=hasEvent
+    ?'<th>Regular BTL</th><th>Event BTL</th><th>Combined BTL</th>'
+    :'<th>PMix BTL Equiv</th><th>Combined BTL</th>';
+
   document.getElementById('results-body').innerHTML=`
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Entity: <strong style="color:var(--accent)">${currentEntity}</strong></div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Entity: <strong style="color:var(--accent2)">${currentEntity}</strong></div>
     <div class="summary-bar">
       <div class="summary-stat"><div class="num">${rows.filter(r=>!r.purchOnly).length}</div><div class="lbl">Items</div></div>
       <div class="summary-divider"></div>
@@ -1533,23 +1608,30 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,matchedPurch
     </div>
     ${unmatchedSection}
     <div class="btn-row" style="margin-bottom:16px">
-      <button class="btn btn-primary" onclick="exportExcel()">↓ Export Excel</button>
+      <button class="btn btn-primary" onclick="exportExcel()">\u2193 Export Excel</button>
       <button class="btn btn-secondary" id="toggleBtn" onclick="toggleFailOnly()">Toggle: Fail Only</button>
     </div>
     <div class="results-wrap">
       <table class="results-table" id="resultsTable">
-        <thead><tr>
-          <th>Item</th>
-          <th>Inv Unit Cost</th><th>Purch Unit Cost</th><th>Cost Variance</th><th>Cost Check</th>
-          <th>Inv Purch Qty</th><th>Purch Total Qty</th><th>Purch Qty Var</th><th>Purch Qty Check</th>
-          <th>Inv Sold Qty</th><th>PMix Btl Equiv</th><th>Sold Qty Var</th><th>Sold Qty Check</th>
-        </tr></thead>
+        <thead>
+          <tr>
+            <th rowspan="2">Item</th>
+            <th colspan="4" style="text-align:center;border-bottom:1px solid var(--border)">Unit Cost Check</th>
+            <th colspan="4" style="text-align:center;border-bottom:1px solid var(--border)">Purchase Qty Check</th>
+            <th colspan="${hasEvent?6:5}" style="text-align:center;border-bottom:1px solid var(--border)">Sold Qty Check</th>
+          </tr>
+          <tr>
+            <th>Inv Cost</th><th>Purch Cost</th><th>Variance</th><th>Check</th>
+            <th>Inv Qty</th><th>Purch Qty</th><th>Variance</th><th>Check</th>
+            <th>Inv Sold Qty</th>${eventCols}<th>Variance</th><th>Check</th>
+          </tr>
+        </thead>
         <tbody id="resultsBody">${tHTML}</tbody>
       </table>
     </div>`;
 
-  window._resultsRows=rows;
-  window._lastInv=inv;window._lastPurch=purch;window._lastPmix=pmix;
+  window._resultsRows=rows;window._hasEvent=hasEvent;
+  window._lastInv=inv;window._lastPurch=purch;window._lastPmix=pmix;window._lastPmixEvent=pmixEvent;
   window._purchMatched=purchMatched;window._pmixMatched=pmixMatched;
   window._matchedPurchKeys=matchedPurchKeys;
   goStep(3);document.getElementById('tab3').classList.add('done');
