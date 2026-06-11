@@ -17,20 +17,17 @@ export default async function handler(req, res) {
 
   const { action, tab, data } = req.query;
 
-  // ── READ: fetch CSV from Google Sheets and return as JSON ──────────────────
+  // ── READ: forward to Apps Script which reads the sheet ────────────────────
   if (action === 'read') {
     if (!tab) {
       return res.status(400).json({ status: 'error', msg: 'Missing tab parameter' });
     }
     try {
-      const url = `${SHEET_CSV_BASE}&sheet=${encodeURIComponent(tab)}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Sheet fetch failed: HTTP ${response.status}`);
-      }
-      const csv = await response.text();
-      const mappings = parseCsvToMappings(csv);
-      return res.status(200).json({ status: 'ok', tab, mappings });
+      const url = APPS_SCRIPT_URL + '?action=read&tab=' + encodeURIComponent(tab);
+      const response = await fetch(url, { method: 'GET', redirect: 'follow' });
+      const text = await response.text();
+      const json = JSON.parse(text);
+      return res.status(200).json(json);
     } catch (err) {
       return res.status(500).json({ status: 'error', msg: err.message });
     }
