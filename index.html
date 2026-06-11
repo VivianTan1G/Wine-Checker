@@ -1111,6 +1111,12 @@ async function runAnalysis(){
   if(!currentEntity){alert('Please select an entity first.');return;}
   const res=getRows(2);if(!res){alert('Please upload the product mix file first.');return;}
   appState.data[2]=res;appState.confirmed[2]=true;
+
+  // Parse event pmix file if one was uploaded
+  if(appState.workbooks[3]){
+    const evRes=getRows(3);
+    if(evRes) appState.data[3]=evRes;
+  }
   document.getElementById('tab2').classList.add('done');
 
   showProgress(5,'Reloading mappings…');
@@ -1141,7 +1147,8 @@ async function runAnalysis(){
     purchEntries.slice(i,i+CHUNK).forEach(([rn,rows])=>{
       if(sessionIgnored.has(normalise(rn)))return;
       const mapped=getMapping(rn);
-      if(mapped&&inv[mapped]){purchMatched[mapped]=purchMatched[mapped]||[];purchMatched[mapped].push(...rows);matchedPurchKeys.add(normalise(rn));}
+      const mappedNorm=mapped?normalise(mapped):null;
+      if(mappedNorm&&inv[mappedNorm]){purchMatched[mappedNorm]=purchMatched[mappedNorm]||[];purchMatched[mappedNorm].push(...rows);matchedPurchKeys.add(normalise(rn));}
       else{const fz=fuzzyMatch(normalise(rn),invCands);if(fz){purchMatched[fz]=purchMatched[fz]||[];purchMatched[fz].push(...rows);matchedPurchKeys.add(normalise(rn));}else purchUnmatched.push({source:'purchase',rawName:rn,rows});}
     });
     showProgress(55+Math.round((i/purchEntries.length)*15),'Matching purchases…');
@@ -1156,7 +1163,8 @@ async function runAnalysis(){
     pmixEntries.slice(i,i+CHUNK).forEach(([rn,data])=>{
       if(sessionIgnored.has(normalise(rn)))return;
       const mapped=getMapping(rn);
-      if(mapped&&inv[mapped]){pmixMatched[mapped]=(pmixMatched[mapped]||0)+data.bottleEquiv;}
+      const mappedNorm=mapped?normalise(mapped):null;
+      if(mappedNorm&&inv[mappedNorm]){pmixMatched[mappedNorm]=(pmixMatched[mappedNorm]||0)+data.bottleEquiv;}
       else{const fz=fuzzyMatch(normalise(rn),invCands);if(fz)pmixMatched[fz]=(pmixMatched[fz]||0)+data.bottleEquiv;else pmixUnmatched.push({source:'pmix',rawName:rn,data});}
     });
     showProgress(70+Math.round((i/pmixEntries.length)*10),'Matching product mix…');
@@ -1188,12 +1196,14 @@ function showMatchModal(unmatched,invNames,inv,purchMatched,pmixMatched,purch,pm
       for(const u of unmatched.filter(u=>u.source==='purchase')){
         if(sessionIgnored.has(normalise(u.rawName)))continue;
         const mapped=getMapping(u.rawName);
-        if(mapped&&inv[mapped]){purchMatched[mapped]=purchMatched[mapped]||[];purchMatched[mapped].push(...u.rows);matchedPurchKeys.add(normalise(u.rawName));}
+        const mappedNorm=mapped?normalise(mapped):null;
+        if(mappedNorm&&inv[mappedNorm]){purchMatched[mappedNorm]=purchMatched[mappedNorm]||[];purchMatched[mappedNorm].push(...u.rows);matchedPurchKeys.add(normalise(u.rawName));}
       }
       for(const u of unmatched.filter(u=>u.source==='pmix')){
         if(sessionIgnored.has(normalise(u.rawName)))continue;
         const mapped=getMapping(u.rawName);
-        if(mapped&&inv[mapped])pmixMatched[mapped]=(pmixMatched[mapped]||0)+u.data.bottleEquiv;
+        const mappedNorm=mapped?normalise(mapped):null;
+        if(mappedNorm&&inv[mappedNorm])pmixMatched[mappedNorm]=(pmixMatched[mappedNorm]||0)+u.data.bottleEquiv;
       }
       buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,matchedPurchKeys);
       resolve();
@@ -1530,7 +1540,8 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,ma
   for(const[rn,data] of Object.entries(pmixEvent)){
     const nk=normalise(rn);
     const mapped=getMapping(rn);
-    const target=mapped&&inv[mapped]?mapped:fuzzyMatch(nk,invCands);
+    const mappedNorm=mapped?normalise(mapped):null;
+    const target=(mappedNorm&&inv[mappedNorm])?mappedNorm:fuzzyMatch(nk,invCands);
     if(target&&inv[target]) pmixEventMatched[target]=(pmixEventMatched[target]||0)+data.bottleEquiv;
   }
 
