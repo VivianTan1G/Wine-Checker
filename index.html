@@ -16,7 +16,6 @@
   .sync-lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: rgba(255,255,255,0.65); margin-left: auto; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--text); color: #fff; padding: 8px 14px; font-size: 11px; z-index: 200; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 320px; letter-spacing: 0.04em; }
   .toast.show { opacity: 1; }
-  .debug-panel { position: fixed; bottom: 60px; right: 16px; width: 420px; max-height: 200px; overflow-y: auto; background: #1a1a2e; color: #00ff88; font-family: monospace; font-size: 11px; padding: 10px; z-index: 300; border: 1px solid #333; }
   .mm-tag-saved    { color: var(--pass); font-size: 10px; letter-spacing: 0.07em; font-weight: 700; text-transform: uppercase; }
   .mm-tag-auto     { color: var(--accent2); font-size: 10px; letter-spacing: 0.07em; font-weight: 700; text-transform: uppercase; }
   .mm-tag-ignored  { color: var(--text-faint); font-size: 10px; letter-spacing: 0.07em; font-weight: 700; text-transform: uppercase; }
@@ -855,8 +854,7 @@ function toast(msg) {
   t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),3500);
 }
-function showDebug(msg,type='info') {
-  let p=document.getElementById('debugPanel');
+function
   if(!p){p=document.createElement('div');p.id='debugPanel';p.className='debug-panel';
     const x=document.createElement('button');x.textContent='✕';
     x.style.cssText='position:absolute;top:4px;right:6px;background:none;border:none;color:#888;cursor:pointer;font-size:13px';
@@ -912,14 +910,13 @@ async function writeToSheet(tab, mappings) {
   // Send {tab, mappings:[{invoice_name, inventory_name, conversion_factor}]}
   // matching beer & spirits Apps Script format exactly
   const payload={tab, mappings};
-  showDebug('Writing to tab: '+tab+' ('+mappings.length+' item(s))');
   try {
     const r=await fetch(API_URL+'?data='+encodeURIComponent(JSON.stringify(payload)));
     const data=await r.json();
-    if(data.status==='ok'){showDebug('\u2713 Written '+data.written+' item(s)');return true;}
+    if(data.status==='ok'){
+return true;}
     throw new Error(data.msg||'Write failed');
   } catch(e){
-    showDebug('Write failed: '+e.message,'error');
     toast('Write failed: '+e.message);
     return false;
   }
@@ -933,7 +930,7 @@ async function saveMappingsToSheet(items) {
                        .map(m=>({normKey:m.normKey,yours:m.invKey,theirs:sheetMaps[m.normKey]}));
   if(conflicts.length){showConflictModal(conflicts,items);return false;}
   items.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
-  const mappings=items.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:m.sourceType||''}));
+  const mappings=items.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:m.sourceType||'', updated_at:sgtNow()}));
   const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
   if(ok) toast(items.length+' mapping(s) saved to Google Sheet');
   return ok;
@@ -941,27 +938,27 @@ async function saveMappingsToSheet(items) {
 
 // ─── Direct save for fuzzy matches — no conflict detection, no reload ─────────
 async function saveFuzzyMappingsToSheet(items) {
-  if(!currentEntity){showDebug('saveFuzzy: no entity','warn');return;}
-  if(!items.length){showDebug('saveFuzzy: empty items list','warn');return;}
+  if(!currentEntity){
+return;}
+  if(!items.length){
+return;}
   // Deduplicate by normKey
   const seen=new Set();
   const toSave=items.filter(m=>{if(seen.has(m.normKey))return false;seen.add(m.normKey);return true;});
-  if(!toSave.length){showDebug('saveFuzzy: nothing to save after dedup','warn');return;}
-  showDebug('saveFuzzy: saving '+toSave.length+' item(s) in batches…');
+  if(!toSave.length){
+return;}
 
   // Split into batches of 10 to avoid URL length limits
   const BATCH=10;
   let saved=0;
   for(let i=0;i<toSave.length;i+=BATCH){
     const batch=toSave.slice(i,i+BATCH);
-    const mappings=batch.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:'fuzzy'}));
+    const mappings=batch.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:'fuzzy', updated_at:sgtNow()}));
     const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
     if(ok){
       batch.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
       saved+=batch.length;
-      showDebug('✓ Batch '+(Math.floor(i/BATCH)+1)+' saved ('+batch.length+' items)');
     } else {
-      showDebug('✗ Batch '+(Math.floor(i/BATCH)+1)+' failed','error');
     }
   }
   if(saved>0) toast(saved+' fuzzy mapping(s) saved to sheet');
@@ -984,7 +981,7 @@ async function resolveConflicts(){
   for(let i=0;i<pendingConflicts.length;i++){if(!conflictResolutions[i]){toast('Choose a version for each conflict');return;}}
   const final=pendingSaveQueue.map(m=>{const ci=pendingConflicts.findIndex(c=>c.normKey===m.normKey);return(ci>=0&&conflictResolutions[ci]==='t')?{...m,invKey:pendingConflicts[ci].theirs}:m;});
   closeConflict();final.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
-  const mappings=final.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:m.sourceType||''}));
+  const mappings=final.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:m.sourceType||'', updated_at:sgtNow()}));
   const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
   if(ok) toast(final.length+' mapping(s) saved');
 }
@@ -1007,6 +1004,7 @@ async function saveServingToSheet() {
 function normalise(s){return String(s).toLowerCase().replace(/[^a-z0-9\s]/g,'').replace(/\s+/g,' ').trim();}
 function parseNum(v){if(v===null||v===undefined||v==='')return 0;const n=parseFloat(String(v).replace(/[$,\s]/g,''));return isNaN(n)?0:n;}
 function getMapping(name){const k=normalise(name);return sessionMappings[k]||sheetMaps[k]||null;}
+function sgtNow(){return new Date().toLocaleString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});}
 function getTopSuggestions(name,candidates,count=5){
   const fuse=new Fuse(candidates,{includeScore:true,threshold:0.6,keys:['name']});
   return fuse.search(normalise(name)).slice(0,count).map(r=>r.item);
@@ -1223,19 +1221,16 @@ async function runAnalysis(){
 
   // ── Save new fuzzy matches to sheet (deduplicated) ──
   if(fuzzyToSave.length>0){
-    showDebug('Fuzzy collected: '+fuzzyToSave.length+' match(es)');
     const seen=new Set();
     const deduped=fuzzyToSave.filter(m=>{
       if(seen.has(m.normKey))return false;
       seen.add(m.normKey);
       return true;
     });
-    showDebug('Fuzzy deduped: '+deduped.length+' unique match(es)');
     // Update sheetMaps so they're available immediately for this session
     deduped.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
     saveFuzzyMappingsToSheet(deduped); // bypass conflict detection
   } else {
-    showDebug('Fuzzy: no new matches to save (all already in sheet)');
   }
 
   const allUnmatched=[...purchUnmatched,...pmixUnmatched];
@@ -1617,7 +1612,6 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,ma
     const deduped=eventFuzzyToSave.filter(m=>{if(seen.has(m.normKey))return false;seen.add(m.normKey);return true;});
     deduped.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
     saveFuzzyMappingsToSheet(deduped);
-    showDebug('Auto-saved '+deduped.length+' event fuzzy match(es) to sheet');
   }
 
   showProgress(88,'Building result rows...');
