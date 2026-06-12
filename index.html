@@ -942,10 +942,10 @@ async function saveMappingsToSheet(items) {
 // ─── Direct save for fuzzy matches — no conflict detection, no reload ─────────
 async function saveFuzzyMappingsToSheet(items) {
   if(!currentEntity||!items.length) return;
-  // Filter out any that have since been added to sheetMaps (e.g. by a concurrent save)
-  const toSave=items.filter(m=>!sheetMaps[m.normKey]);
+  // Deduplicate by normKey
+  const seen=new Set();
+  const toSave=items.filter(m=>{if(seen.has(m.normKey))return false;seen.add(m.normKey);return true;});
   if(!toSave.length) return;
-  toSave.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
   const mappings=toSave.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:'fuzzy'}));
   showDebug('Saving '+toSave.length+' fuzzy mapping(s) to sheet…');
   const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
@@ -1214,7 +1214,7 @@ async function runAnalysis(){
       seen.add(m.normKey);
       return true;
     });
-    // Update sheetMaps so they're available immediately
+    // Update sheetMaps so they're available immediately for this session
     deduped.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
     saveFuzzyMappingsToSheet(deduped); // bypass conflict detection
     showDebug('Auto-saved '+deduped.length+' fuzzy match(es) to sheet');
