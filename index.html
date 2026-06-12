@@ -947,17 +947,24 @@ async function saveFuzzyMappingsToSheet(items) {
   const seen=new Set();
   const toSave=items.filter(m=>{if(seen.has(m.normKey))return false;seen.add(m.normKey);return true;});
   if(!toSave.length){showDebug('saveFuzzy: nothing to save after dedup','warn');return;}
-  showDebug('saveFuzzy: saving '+toSave.length+' item(s): '+toSave.map(m=>m.normKey).slice(0,3).join(', ')+(toSave.length>3?'...':''));
-  const mappings=toSave.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:'fuzzy'}));
-  showDebug('saveFuzzy: payload tab='+mappingsTab(currentEntity));
-  const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
-  if(ok){
-    toSave.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
-    showDebug('✓ Fuzzy saved '+toSave.length+' mapping(s)');
-    toast(toSave.length+' fuzzy mapping(s) saved to sheet');
-  } else {
-    showDebug('✗ Fuzzy save failed','error');
+  showDebug('saveFuzzy: saving '+toSave.length+' item(s) in batches…');
+
+  // Split into batches of 10 to avoid URL length limits
+  const BATCH=10;
+  let saved=0;
+  for(let i=0;i<toSave.length;i+=BATCH){
+    const batch=toSave.slice(i,i+BATCH);
+    const mappings=batch.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:'fuzzy'}));
+    const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
+    if(ok){
+      batch.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
+      saved+=batch.length;
+      showDebug('✓ Batch '+(Math.floor(i/BATCH)+1)+' saved ('+batch.length+' items)');
+    } else {
+      showDebug('✗ Batch '+(Math.floor(i/BATCH)+1)+' failed','error');
+    }
   }
+  if(saved>0) toast(saved+' fuzzy mapping(s) saved to sheet');
 }
 
 // ─── Conflict modal ───────────────────────────────────────────────────────────
