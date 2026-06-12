@@ -1141,15 +1141,24 @@ async function runAnalysis(){
   // ── Match purchases in chunks ──
   showProgress(55,'Matching purchases…');
   const purchMatched={},purchUnmatched=[],matchedPurchKeys=new Set();
+  const fuzzyToSave=[]; // collect new fuzzy matches not already in sheet
   const purchEntries=Object.entries(purch);
   const CHUNK=50;
   for(let i=0;i<purchEntries.length;i+=CHUNK){
     purchEntries.slice(i,i+CHUNK).forEach(([rn,rows])=>{
       if(sessionIgnored.has(normalise(rn)))return;
+      const nk=normalise(rn);
       const mapped=getMapping(rn);
       const mappedNorm=mapped?normalise(mapped):null;
-      if(mappedNorm&&inv[mappedNorm]){purchMatched[mappedNorm]=purchMatched[mappedNorm]||[];purchMatched[mappedNorm].push(...rows);matchedPurchKeys.add(normalise(rn));}
-      else{const fz=fuzzyMatch(normalise(rn),invCands);if(fz){purchMatched[fz]=purchMatched[fz]||[];purchMatched[fz].push(...rows);matchedPurchKeys.add(normalise(rn));}else purchUnmatched.push({source:'purchase',rawName:rn,rows});}
+      if(mappedNorm&&inv[mappedNorm]){purchMatched[mappedNorm]=purchMatched[mappedNorm]||[];purchMatched[mappedNorm].push(...rows);matchedPurchKeys.add(nk);}
+      else{
+        const fz=fuzzyMatch(nk,invCands);
+        if(fz){
+          purchMatched[fz]=purchMatched[fz]||[];purchMatched[fz].push(...rows);matchedPurchKeys.add(nk);
+          // save to sheet only if not already saved
+          if(!sheetMaps[nk]) fuzzyToSave.push({normKey:nk,invKey:fz,sourceType:'fuzzy'});
+        } else purchUnmatched.push({source:'purchase',rawName:rn,rows});
+      }
     });
     showProgress(55+Math.round((i/purchEntries.length)*15),'Matching purchases…');
     await yieldFrame();
@@ -1162,17 +1171,41 @@ async function runAnalysis(){
   for(let i=0;i<pmixEntries.length;i+=CHUNK){
     pmixEntries.slice(i,i+CHUNK).forEach(([rn,data])=>{
       if(sessionIgnored.has(normalise(rn)))return;
+      const nk=normalise(rn);
       const mapped=getMapping(rn);
       const mappedNorm=mapped?normalise(mapped):null;
       if(mappedNorm&&inv[mappedNorm]){pmixMatched[mappedNorm]=(pmixMatched[mappedNorm]||0)+data.bottleEquiv;}
-      else{const fz=fuzzyMatch(normalise(rn),invCands);if(fz)pmixMatched[fz]=(pmixMatched[fz]||0)+data.bottleEquiv;else pmixUnmatched.push({source:'pmix',rawName:rn,data});}
+      else{
+        const fz=fuzzyMatch(nk,invCands);
+        if(fz){
+          pmixMatched[fz]=(pmixMatched[fz]||0)+data.bottleEquiv;
+          if(!sheetMaps[nk]) fuzzyToSave.push({normKey:nk,invKey:fz,sourceType:'fuzzy'});
+        } else pmixUnmatched.push({source:'pmix',rawName:rn,data});
+      }
     });
     showProgress(70+Math.round((i/pmixEntries.length)*10),'Matching product mix…');
     await yieldFrame();
   }
 
+  // ── Also track event pmix fuzzy matches ──
+  // (event pmix matching happens in buildResults, so we handle it there)
+
   showProgress(85,'Building results…');
   await yieldFrame();
+
+  // ── Save new fuzzy matches to sheet (deduplicated) ──
+  if(fuzzyToSave.length>0){
+    const seen=new Set();
+    const deduped=fuzzyToSave.filter(m=>{
+      if(seen.has(m.normKey))return false;
+      seen.add(m.normKey);
+      return true;
+    });
+    // Update sheetMaps so they're available immediately
+    deduped.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
+    saveMappingsToSheet(deduped); // fire and forget — don't block analysis
+    showDebug('Auto-saved '+deduped.length+' fuzzy match(es) to sheet');
+  }
 
   const allUnmatched=[...purchUnmatched,...pmixUnmatched];
   if(allUnmatched.length>0){
@@ -1536,13 +1569,24 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,ma
 
   // Match event pmix to inventory keys
   const pmixEventMatched={};
+  const eventFuzzyToSave=[];
   const invCands=Object.keys(inv).map(n=>({name:n}));
   for(const[rn,data] of Object.entries(pmixEvent)){
     const nk=normalise(rn);
     const mapped=getMapping(rn);
     const mappedNorm=mapped?normalise(mapped):null;
     const target=(mappedNorm&&inv[mappedNorm])?mappedNorm:fuzzyMatch(nk,invCands);
-    if(target&&inv[target]) pmixEventMatched[target]=(pmixEventMatched[target]||0)+data.bottleEquiv;
+    if(target&&inv[target]){
+      pmixEventMatched[target]=(pmixEventMatched[target]||0)+data.bottleEquiv;
+      if(!sheetMaps[nk]&&!mappedNorm) eventFuzzyToSave.push({normKey:nk,invKey:target,sourceType:'fuzzy'});
+    }
+  }
+  if(eventFuzzyToSave.length>0){
+    const seen=new Set();
+    const deduped=eventFuzzyToSave.filter(m=>{if(seen.has(m.normKey))return false;seen.add(m.normKey);return true;});
+    deduped.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
+    saveMappingsToSheet(deduped);
+    showDebug('Auto-saved '+deduped.length+' event fuzzy match(es) to sheet');
   }
 
   showProgress(88,'Building result rows...');
