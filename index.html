@@ -939,6 +939,19 @@ async function saveMappingsToSheet(items) {
   return ok;
 }
 
+// ─── Direct save for fuzzy matches — no conflict detection, no reload ─────────
+async function saveFuzzyMappingsToSheet(items) {
+  if(!currentEntity||!items.length) return;
+  // Filter out any that have since been added to sheetMaps (e.g. by a concurrent save)
+  const toSave=items.filter(m=>!sheetMaps[m.normKey]);
+  if(!toSave.length) return;
+  toSave.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
+  const mappings=toSave.map(m=>({invoice_name:m.normKey, inventory_name:m.invKey, conversion_factor:'fuzzy'}));
+  showDebug('Saving '+toSave.length+' fuzzy mapping(s) to sheet…');
+  const ok=await writeToSheet(mappingsTab(currentEntity),mappings);
+  if(ok) showDebug('✓ Fuzzy mappings saved: '+toSave.map(m=>m.normKey).join(', '));
+}
+
 // ─── Conflict modal ───────────────────────────────────────────────────────────
 function showConflictModal(conflicts,allItems) {
   pendingConflicts=conflicts;pendingSaveQueue=allItems;conflictResolutions={};
@@ -1203,7 +1216,7 @@ async function runAnalysis(){
     });
     // Update sheetMaps so they're available immediately
     deduped.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
-    saveMappingsToSheet(deduped); // fire and forget — don't block analysis
+    saveFuzzyMappingsToSheet(deduped); // bypass conflict detection
     showDebug('Auto-saved '+deduped.length+' fuzzy match(es) to sheet');
   }
 
@@ -1585,7 +1598,7 @@ async function buildResults(inv,purch,purchMatched,pmixMatched,pmix,pmixEvent,ma
     const seen=new Set();
     const deduped=eventFuzzyToSave.filter(m=>{if(seen.has(m.normKey))return false;seen.add(m.normKey);return true;});
     deduped.forEach(m=>{sheetMaps[m.normKey]=m.invKey;});
-    saveMappingsToSheet(deduped);
+    saveFuzzyMappingsToSheet(deduped);
     showDebug('Auto-saved '+deduped.length+' event fuzzy match(es) to sheet');
   }
 
